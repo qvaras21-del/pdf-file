@@ -98,6 +98,8 @@ h2{font:700 1.35rem var(--head);margin:0;letter-spacing:-.02em;display:flex;alig
 .fbar{height:5px;margin-top:8px;border-radius:9px;background:var(--line);overflow:hidden}
 .fbar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
 .fbtns{display:flex;gap:8px}
+.tsel{padding:2px 8px;font-size:.84rem;border-radius:8px}
+.hint{color:var(--muted);font-size:.85rem;margin:0 0 12px}
 .empty{text-align:center;color:var(--muted);padding:18px 0 4px;margin:0}
 .spinner{width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;vertical-align:-2px;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
