@@ -217,15 +217,18 @@ async function htmlToPdf(html, s, orient, onProgress) {
   const host = el("div", { class: "pdf-sheet" });
   host.style.width = px + "px";
   host.append(sanitize(html));
-  document.body.append(host);
+  const wrap = el("div", { class: "pdf-wrap", "aria-hidden": "true" }, host);
+  document.body.append(wrap);
+  let p = 55;
+  onProgress(p);
+  const timer = setInterval(() => { p += (88 - p) * 0.06; onProgress(Math.round(p)); }, 400);
   try {
-    onProgress(55);
     await tick(60);
     await doc.html(host, {
       margin: [s.margin, s.margin, s.margin, s.margin], autoPaging: "text", width: mmW, windowWidth: px,
       html2canvas: { scale: 2, useCORS: false, allowTaint: false, backgroundColor: "#ffffff", logging: false },
     });
-  } finally { host.remove(); }
+  } finally { clearInterval(timer); wrap.remove(); }
   return doc;
 }
 
