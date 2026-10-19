@@ -7,8 +7,18 @@ const CAT = {
   jpg: "img", jpeg: "img", png: "img", webp: "img", gif: "img", bmp: "img",
   txt: "text", md: "text", log: "text", json: "text",
   html: "html", htm: "html", docx: "docx",
-  xlsx: "sheet", xls: "sheet", csv: "sheet", pptx: "pptx",
+  xlsx: "sheet", xls: "sheet", csv: "sheet", pptx: "pptx", pdf: "pdf",
 };
+const TARGETS = {
+  img: ["pdf", "png", "jpg", "webp"], text: ["pdf", "docx", "html"], html: ["pdf", "docx", "txt"],
+  docx: ["pdf", "html", "txt"], sheet: ["pdf", "xlsx", "csv", "html", "json"], pptx: ["pdf", "txt", "docx"], pdf: ["docx", "txt", "png", "jpg"],
+};
+const MIME = { pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", webp: "image/webp", html: "text/html", txt: "text/plain",
+  csv: "text/csv", json: "application/json", zip: "application/zip",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
+const PREVIEWABLE = ["pdf", "png", "jpg", "webp", "txt"];
+const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const LEGACY = ["doc", "ppt", "odt", "rtf", "odp", "ods", "pages", "key", "numbers"];
 const PAGE = { a4: [210, 297], letter: [215.9, 279.4], legal: [215.9, 355.6], a3: [297, 420], a5: [148, 210] };
 
@@ -20,7 +30,7 @@ let uid = 0, busy = false;
 
 const fmtSize = (b) => b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(1) + " KB" : (b / 1048576).toFixed(2) + " MB";
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const pdfName = (n) => n.replace(/\.[^.]+$/, "") + ".pdf";
+const outName = (it) => it.file.name.replace(/\.[^.]+$/, "") + "." + (it.outExt || it.target);
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
 function el(tag, attrs = {}, kids = []) {
@@ -76,7 +86,7 @@ function addFiles(list) {
   for (const file of list) {
     if (files.length >= MAX_FILES) { toast(`Limit reached: ${MAX_FILES} files at a time.`, true); break; }
     const ext = (file.name.split(".").pop() || "").toLowerCase();
-    const item = { id: ++uid, file, ext, cat: CAT[ext], status: "ready", progress: 0, error: "", blob: null, url: null, invalid: false };
+    const item = { id: ++uid, file, ext, cat: CAT[ext], target: (TARGETS[CAT[ext]] || [])[0] || "pdf", outExt: "", status: "ready", progress: 0, error: "", blob: null, url: null, invalid: false };
     if (!item.cat) {
       item.invalid = true; item.status = "error";
       item.error = LEGACY.includes(ext)
@@ -103,17 +113,22 @@ function buildRow(item) {
   const err = el("div", { class: "ferr", role: "alert" });
   const fill = el("i");
   const bar = el("div", { class: "fbar", hidden: "" }, fill);
+  const sel = el("select", { class: "tsel", "aria-label": `Output format for ${item.file.name}` });
+  (TARGETS[item.cat] || []).forEach((t) => sel.append(el("option", { value: t, text: t.toUpperCase() })));
+  sel.value = item.target;
+  sel.addEventListener("change", () => setTarget(item, sel.value));
   const meta = el("div", { class: "fmeta" }, [
     el("span", { text: fmtSize(item.file.size) }),
     el("span", { text: item.ext ? item.ext.toUpperCase() : "FILE" }), status,
+    item.invalid ? null : el("span", {}, ["Convert to ", sel]),
   ]);
-  const prev = iconBtn("eye", `Preview PDF of ${item.file.name}`, () => openPreview(item.url, pdfName(item.file.name)));
-  const dl = iconBtn("down", `Download PDF of ${item.file.name}`, () => download(item.url, pdfName(item.file.name)));
+  const prev = iconBtn("eye", `Preview ${item.file.name}`, () => openPreview(item.url, outName(item)));
+  const dl = iconBtn("down", `Download converted ${item.file.name}`, () => download(item.url, outName(item)));
   const rm = iconBtn("x", `Remove ${item.file.name}`, () => removeFile(item));
   const btns = el("div", { class: "fbtns" }, [prev, dl, rm]);
   const name = el("div", { class: "fname", title: item.file.name, text: item.file.name });
   const li = el("li", { class: "file" }, [thumb, el("div", { class: "fmain" }, [name, meta, err, bar]), btns]);
-  item.els = { li, status, err, bar, fill, prev, dl, rm };
+  item.els = { li, status, err, bar, fill, prev, dl, rm, sel };
   $("fileList").append(li);
   updateRow(item);
 }
@@ -127,7 +142,8 @@ function updateRow(item) {
   e.err.textContent = item.error;
   e.bar.hidden = item.status !== "converting";
   e.fill.style.width = item.progress + "%";
-  e.prev.hidden = e.dl.hidden = item.status !== "done";
+  e.dl.hidden = item.status !== "done";
+  e.prev.hidden = e.dl.hidden || !PREVIEWABLE.includes(item.outExt);
   e.rm.disabled = item.status === "converting";
 }
 
@@ -150,6 +166,7 @@ function clearAll() {
 
 function refresh() {
   $("count").textContent = files.length;
+  files.forEach((f) => { f.els.sel.disabled = busy; });
   $("empty").hidden = files.length > 0;
   const pending = files.some((f) => !f.invalid && f.status !== "done");
   $("convertBtn").disabled = busy || !pending;
@@ -248,35 +265,152 @@ async function pptxToHtml(buf) {
   return html;
 }
 
-async function convertOne(item, s, report) {
-  const f = item.file;
-  report(10); await tick();
-  let doc;
-  switch (item.cat) {
-    case "img": report(40); doc = await imageToPdf(f, s); break;
-    case "text": {
-      let t = await f.text();
-      if (item.ext === "json") { try { t = JSON.stringify(JSON.parse(t), null, 2); } catch (e) { /* keep raw */ } }
-      report(35); doc = await htmlToPdf(`<pre class="plain">${esc(t)}</pre>`, s, pickOrient(s, "p"), report); break;
+const XMLH = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+const xmlEsc = (t) => String(t).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+/* Minimal valid DOCX: one paragraph per line, null = page break */
+async function makeDocx(paras) {
+  const z = new JSZip();
+  z.file("[Content_Types].xml", XMLH + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+  z.file("_rels/.rels", XMLH + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+  const body = paras.map((p) => p === null ? '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+    : `<w:p><w:r><w:t xml:space="preserve">${xmlEsc(p)}</w:t></w:r></w:p>`).join("");
+  z.file("word/document.xml", XMLH + `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`);
+  return z.generateAsync({ type: "blob", mimeType: MIME.docx });
+}
+
+function htmlToText(html) {
+  const d = new DOMParser().parseFromString(html, "text/html");
+  d.querySelectorAll("script,style").forEach((n) => n.remove());
+  d.querySelectorAll("br").forEach((n) => n.replaceWith("\n"));
+  d.querySelectorAll("td,th").forEach((n) => n.append("\t"));
+  d.querySelectorAll("p,div,li,tr,h1,h2,h3,h4,h5,h6,pre,table").forEach((n) => n.append("\n"));
+  return d.body.textContent.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+const canvasBlob = (c, type, q) => new Promise((res, rej) =>
+  c.toBlob((b) => (b ? res(b) : rej(new Error("This browser can't encode that image format."))), type, q));
+
+async function imageToImage(file, t) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    const c = el("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const ctx = c.getContext("2d");
+    if (t === "jpg") { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height); }
+    ctx.drawImage(img, 0, 0);
+    return await canvasBlob(c, MIME[t], 0.92);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function loadPdf(file) {
+  if (!window.pdfjsLib) throw new Error("The PDF reader library failed to load. Check your connection and reload.");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS;
+  return pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+}
+
+async function pdfText(file, report) {
+  const pdf = await loadPdf(file), pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const tc = await (await pdf.getPage(i)).getTextContent();
+    const lines = []; let cur = "", last = null;
+    for (const it of tc.items) {
+      const y = it.transform[5];
+      if (last !== null && Math.abs(y - last) > 2) { lines.push(cur); cur = ""; }
+      cur += it.str; last = y;
+      if (it.hasEOL) { lines.push(cur); cur = ""; last = null; }
     }
-    case "html": report(35); doc = await htmlToPdf(await f.text(), s, pickOrient(s, "p"), report); break;
+    if (cur) lines.push(cur);
+    pages.push(lines.map((l) => l.trim()).filter(Boolean));
+    report(10 + Math.round((80 * i) / pdf.numPages));
+  }
+  return pages;
+}
+
+async function pdfToImages(file, t, report) {
+  const pdf = await loadPdf(file);
+  if (pdf.numPages > 100) throw new Error("This PDF has more than 100 pages. Split it first.");
+  const blobs = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    let vp = page.getViewport({ scale: 2 });
+    vp = page.getViewport({ scale: 2 * Math.min(1, 4000 / Math.max(vp.width, vp.height)) });
+    const c = el("canvas"); c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    blobs.push(await canvasBlob(c, MIME[t], 0.92));
+    report(10 + Math.round((80 * i) / pdf.numPages));
+  }
+  if (blobs.length === 1) return { blob: blobs[0], ext: t };
+  const z = new JSZip();
+  blobs.forEach((b, i) => z.file(`page-${i + 1}.${t}`, b));
+  return { blob: await z.generateAsync({ type: "blob" }), ext: "zip" };
+}
+
+async function convertOne(item, s, report) {
+  const f = item.file, t = item.target, ext = item.ext;
+  report(10); await tick();
+  const out = (blob, e = t) => ({ blob, ext: e });
+  const toPdf = async (html, o) => { report(35); return out((await htmlToPdf(html, s, pickOrient(s, o), report)).output("blob")); };
+  const asHtml = (html) => {
+    const d = el("div"); d.append(sanitize(html));
+    return out(new Blob([`<!doctype html><html><head><meta charset="utf-8"><title>${esc(f.name)}</title></head><body>${d.innerHTML}</body></html>`], { type: MIME.html }));
+  };
+  const asText = (txt) => out(new Blob([txt], { type: "text/plain;charset=utf-8" }));
+  const asDocx = async (txt) => out(await makeDocx(Array.isArray(txt) ? txt : txt.split(/\r?\n/)));
+  const sheetHtml = (wb) => wb.SheetNames.map((n) => `<h2>${esc(n)}</h2>` + XLSX.utils.sheet_to_html(wb.Sheets[n], { header: "", footer: "" })).join("");
+
+  switch (item.cat) {
+    case "img":
+      if (t === "pdf") { report(40); return out((await imageToPdf(f, s)).output("blob")); }
+      report(50); return out(await imageToImage(f, t));
+    case "pdf": {
+      if (t === "png" || t === "jpg") return pdfToImages(f, t, report);
+      const pages = await pdfText(f, report);
+      if (!pages.some((p) => p.length)) throw new Error("This PDF has no selectable text (it may be a scan, which needs OCR).");
+      if (t === "txt") return asText(pages.map((p) => p.join("\n")).join("\n\n"));
+      const paras = []; pages.forEach((p, i) => { if (i) paras.push(null); paras.push(...p); });
+      return asDocx(paras);
+    }
+    case "text": {
+      let txt = await f.text();
+      if (ext === "json") { try { txt = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) { /* keep raw */ } }
+      if (t === "docx") return asDocx(txt);
+      const html = `<pre class="plain">${esc(txt)}</pre>`;
+      return t === "html" ? asHtml(html) : toPdf(html, "p");
+    }
+    case "html": {
+      const raw = await f.text();
+      if (t === "docx") return asDocx(htmlToText(raw));
+      if (t === "txt") return asText(htmlToText(raw));
+      return toPdf(raw, "p");
+    }
     case "docx": {
       if (!window.mammoth) throw new Error("The DOCX library failed to load. Check your connection and reload.");
-      const r = await mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() });
-      report(35); doc = await htmlToPdf(r.value || "<p><em>(empty document)</em></p>", s, pickOrient(s, "p"), report); break;
+      const html = (await mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() })).value || "<p><em>(empty document)</em></p>";
+      if (t === "txt") return asText(htmlToText(html));
+      return t === "html" ? asHtml(html) : toPdf(html, "p");
     }
     case "sheet": {
-      const wb = item.ext === "csv" ? XLSX.read(await f.text(), { type: "string" }) : XLSX.read(await f.arrayBuffer(), { type: "array" });
-      const html = wb.SheetNames.map((n) => `<h2>${esc(n)}</h2>` + XLSX.utils.sheet_to_html(wb.Sheets[n], { header: "", footer: "" })).join("");
-      report(35); doc = await htmlToPdf(html, s, pickOrient(s, "l"), report); break;
+      const wb = ext === "csv" ? XLSX.read(await f.text(), { type: "string" }) : XLSX.read(await f.arrayBuffer(), { type: "array" });
+      report(30);
+      if (t === "xlsx") return out(new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })], { type: MIME.xlsx }));
+      if (t === "csv") return out(new Blob(["\uFEFF" + XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]])], { type: MIME.csv }));
+      if (t === "json") {
+        const o = {}; wb.SheetNames.forEach((n) => { o[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { defval: "" }); });
+        return out(new Blob([JSON.stringify(o, null, 2)], { type: MIME.json }));
+      }
+      return t === "html" ? asHtml(sheetHtml(wb)) : toPdf(sheetHtml(wb), "l");
     }
     case "pptx": {
       const html = await pptxToHtml(await f.arrayBuffer());
-      report(35); doc = await htmlToPdf(html, s, pickOrient(s, "l"), report); break;
+      if (t === "txt") return asText(htmlToText(html));
+      if (t === "docx") return asDocx(htmlToText(html));
+      return toPdf(html, "l");
     }
   }
-  report(92);
-  return doc.output("blob");
+  throw new Error("Unsupported conversion.");
 }
 
 /* ---------- Convert all ---------- */
@@ -288,7 +422,7 @@ function setOverall(p, text) {
 
 async function convertAll() {
   if (busy) return;
-  if (!window.jspdf || !window.html2canvas) return toast("Converter libraries didn't load. Check your connection and reload.", true);
+  if (files.some((f) => !f.invalid && f.status !== "done" && f.target === "pdf") && (!window.jspdf || !window.html2canvas)) return toast("Converter libraries didn't load. Check your connection and reload.", true);
   const queue = files.filter((f) => !f.invalid && f.status !== "done");
   if (!queue.length) return;
   busy = true; refresh();
@@ -300,7 +434,8 @@ async function convertAll() {
     item.status = "converting"; item.error = ""; item.progress = 5; updateRow(item);
     const report = (p) => { item.progress = p; updateRow(item); setOverall(((i + p / 100) / queue.length) * 100); };
     try {
-      item.blob = await convertOne(item, s, report);
+      const r = await convertOne(item, s, report);
+      item.blob = r.blob; item.outExt = r.ext;
       if (item.url) URL.revokeObjectURL(item.url);
       item.url = URL.createObjectURL(item.blob);
       item.status = "done"; item.progress = 100; ok++;
@@ -327,8 +462,8 @@ async function downloadZip() {
   try {
     const zip = new JSZip(), used = new Set();
     for (const it of done) {
-      let n = pdfName(it.file.name), c = 1;
-      while (used.has(n.toLowerCase())) n = pdfName(it.file.name).replace(/\.pdf$/, ` (${++c}).pdf`);
+      let n = outName(it), c = 1;
+      while (used.has(n.toLowerCase())) n = outName(it).replace(/\.([^.]+)$/, ` (${++c}).$1`);
       used.add(n.toLowerCase()); zip.file(n, it.blob);
     }
     const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
@@ -342,16 +477,16 @@ async function downloadZip() {
 
 /* ---------- History ---------- */
 function addHistory(item) {
-  const h = { id: ++uid, name: pdfName(item.file.name), size: item.blob.size, url: item.url, time: new Date() };
+  const h = { id: ++uid, name: outName(item), size: item.blob.size, url: item.url, time: new Date() };
   history.unshift(h);
   const li = el("li", { class: "file", "data-id": h.id }, [
-    el("div", { class: "thumb", text: "pdf" }),
+    el("div", { class: "thumb", text: item.outExt }),
     el("div", { class: "fmain" }, [
       el("div", { class: "fname", title: h.name, text: h.name }),
       el("div", { class: "fmeta" }, [el("span", { text: fmtSize(h.size) }), el("span", { text: h.time.toLocaleTimeString() })]),
     ]),
     el("div", { class: "fbtns" }, [
-      iconBtn("eye", `Preview ${h.name}`, () => openPreview(h.url, h.name)),
+      PREVIEWABLE.includes(item.outExt) ? iconBtn("eye", `Preview ${h.name}`, () => openPreview(h.url, h.name)) : null,
       iconBtn("down", `Download ${h.name}`, () => download(h.url, h.name)),
     ]),
   ]);
@@ -391,6 +526,24 @@ $("convertBtn").addEventListener("click", convertAll);
 $("zipBtn").addEventListener("click", downloadZip);
 $("clearBtn").addEventListener("click", clearAll);
 $("histClear").addEventListener("click", clearHistory);
+
+function setTarget(item, t) {
+  if (busy) return;
+  item.target = t;
+  if (item.status === "done") { item.status = "ready"; item.blob = null; item.progress = 0; }
+  updateRow(item); refresh();
+}
+$("allTarget").addEventListener("change", () => {
+  const t = $("allTarget").value;
+  if (!t || busy) return;
+  let n = 0, skip = 0;
+  files.forEach((f) => {
+    if (f.invalid) return;
+    if (TARGETS[f.cat].includes(t)) { f.els.sel.value = t; setTarget(f, t); n++; } else skip++;
+  });
+  toast(n ? `${n} file(s) set to ${t.toUpperCase()}${skip ? `; ${skip} can't be converted to it` : ""}.` : `None of the files can be converted to ${t.toUpperCase()}.`, !n);
+  $("allTarget").value = "";
+});
 // Changing settings invalidates earlier results so they can be re-converted with the new options
 ["size", "orient", "margin"].forEach((id) => $(id).addEventListener("change", () => {
   if (busy) return;
