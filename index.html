@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foldr – Convert files to PDF in your browser</title>
+<meta name="description" content="Convert images, Word, Excel, PowerPoint, HTML, CSV and text files to PDF. Everything runs locally in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v12m0 0 5-5m-5 5-5-5M4 20h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-zip" viewBox="0 0 24 24"><path d="M4 7h16v13H4zM4 7l2-3h12l2 3M12 7v5m-1.5 2h3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<a class="skip" href="#convert">Skip to converter</a>
+
+<header class="nav">
+  <a class="brand" href="#top" aria-label="Foldr home"><span class="logo" aria-hidden="true"></span>Foldr</a>
+  <nav aria-label="Main">
+    <a href="#convert">Convert</a><a href="#formats">Formats</a><a href="#privacy">Privacy</a>
+  </nav>
+  <button id="themeBtn" class="icon-btn" type="button" aria-label="Switch to dark mode" aria-pressed="false">
+    <svg class="ico"><use id="themeIcon" href="#i-moon"/></svg>
+  </button>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <h1>Any file in.<br>PDF out.</h1>
+    <p>Images, Word, Excel, PowerPoint, HTML, CSV and text. Converted on your device — nothing is uploaded.</p>
+  </section>
+
+  <section id="convert" class="app glass" aria-label="Converter">
+    <input id="fileInput" class="sr-only" type="file" multiple
+      accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,.txt,.md,.log,.json,.html,.htm,.docx,.xlsx,.xls,.csv,.pptx,.doc,.ppt,.odt,.rtf">
+    <div id="drop" class="drop" role="button" tabindex="0" aria-describedby="dropHint">
+      <svg class="ico big"><use href="#i-up"/></svg>
+      <strong>Drop files here or <u>browse</u></strong>
+      <span id="dropHint">Up to 30 files, 25 MB each. JPG, PNG, WEBP, DOCX, XLSX, CSV, PPTX, HTML, TXT and more.</span>
+    </div>
+
+    <details class="settings" open>
+      <summary>Conversion settings</summary>
+      <div class="grid3">
+        <label>Page size
+          <select id="size"><option value="a4">A4</option><option value="letter">Letter</option><option value="legal">Legal</option><option value="a3">A3</option><option value="a5">A5</option></select>
+        </label>
+        <label>Orientation
+          <select id="orient"><option value="auto">Auto</option><option value="p">Portrait</option><option value="l">Landscape</option></select>
+        </label>
+        <label>Margins
+          <select id="margin"><option value="0">None</option><option value="10">Narrow (10 mm)</option><option value="15" selected>Normal (15 mm)</option><option value="25">Wide (25 mm)</option></select>
+        </label>
+      </div>
+    </details>
+
+    <div class="listhead">
+      <h2>Files <span id="count" class="badge">0</span></h2>
+      <div class="actions">
+        <button id="convertBtn" class="btn primary" type="button" disabled><svg class="ico"><use href="#i-bolt"/></svg>Convert all</button>
+        <button id="zipBtn" class="btn" type="button" disabled><svg class="ico"><use href="#i-zip"/></svg>Download ZIP</button>
+        <button id="clearBtn" class="btn ghost" type="button" disabled><svg class="ico"><use href="#i-trash"/></svg>Clear all</button>
+      </div>
+    </div>
+
+    <div id="overall" class="overall" hidden>
+      <div class="bar" role="progressbar" aria-label="Overall progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="overallFill"></i></div>
+      <span id="overallText">0%</span>
+    </div>
+
+    <ul id="fileList" class="files"></ul>
+    <p id="empty" class="empty">No files yet. Add some above to get started.</p>
+  </section>
+
+  <section class="app glass" aria-labelledby="histTitle">
+    <div class="listhead">
+      <h2 id="histTitle">Session history <span id="histCount" class="badge">0</span></h2>
+      <button id="histClear" class="btn ghost" type="button" disabled>Clear history</button>
+    </div>
+    <ul id="history" class="files"></ul>
+    <p id="histEmpty" class="empty">Converted PDFs from this visit appear here until you close the tab.</p>
+  </section>
+
+  <section id="formats" class="info">
+    <h2>What gets converted, and how</h2>
+    <div class="cards">
+      <article class="glass"><h3>Images</h3><p>JPG, PNG, WEBP, GIF, BMP. Placed on a page, scaled to fit, orientation picked from the image.</p></article>
+      <article class="glass"><h3>Word (DOCX)</h3><p>Headings, lists, tables, bold/italic and embedded images are kept. Complex layouts, headers and footers are simplified.</p></article>
+      <article class="glass"><h3>Excel &amp; CSV</h3><p>XLSX, XLS and CSV. Every sheet becomes a table, with values as saved in the file.</p></article>
+      <article class="glass"><h3>PowerPoint (PPTX)</h3><p>Text from each slide is extracted. Images, shapes and styling are not reproduced.</p></article>
+      <article class="glass"><h3>HTML &amp; text</h3><p>HTML, TXT, MD, JSON, LOG. Scripts and external resources are removed for safety.</p></article>
+      <article class="glass"><h3>Needs a server</h3><p>DOC, PPT, ODT and RTF can’t be converted accurately in a browser. Re-save them as DOCX or PPTX first, or use a server tool such as LibreOffice.</p></article>
+    </div>
+    <p class="note">Text-based files are drawn as page images so every language and alphabet renders correctly. The PDF looks right but its text can’t be selected.</p>
+  </section>
+
+  <section id="privacy" class="info">
+    <h2>Privacy</h2>
+    <p>Files are read and converted by your browser. They are never sent to a server, and there is no tracking or analytics. The converter libraries and fonts load from public CDNs, which see that the page was opened but never your files. History lives in memory and disappears when you close or reload the tab.</p>
+  </section>
+</main>
+
+<footer class="foot">Foldr · Built with jsPDF, html2canvas, mammoth, SheetJS and JSZip</footer>
+
+<dialog id="preview" aria-labelledby="pvTitle">
+  <div class="pvhead">
+    <h2 id="pvTitle">Preview</h2>
+    <a id="pvOpen" class="btn ghost" target="_blank" rel="noopener">Open in new tab</a>
+    <button id="pvClose" class="icon-btn" type="button" aria-label="Close preview"><svg class="ico"><use href="#i-x"/></svg></button>
+  </div>
+  <iframe id="pvFrame" title="PDF preview"></iframe>
+</dialog>
+
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
