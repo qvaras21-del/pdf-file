@@ -1,3 +1,4 @@
+
 :root{
   --bg1:#fff1e4;--bg2:#e4eaff;--ink:#17143a;--muted:#5b5880;--glass:rgba(255,255,255,.64);
   --line:rgba(23,20,58,.13);--accent:#4b3df2;--accent2:#ff5a3c;--ok:#0c8f61;--err:#d02244;
@@ -123,7 +124,8 @@ dialog::backdrop{background:rgba(8,6,30,.6);backdrop-filter:blur(4px)}
 .toast.err{background:var(--err);color:#fff}
 
 /* Hidden render surface used while drawing documents to PDF */
-.pdf-sheet{position:fixed;left:-20000px;top:0;background:#fff;color:#111;font:13px/1.55 "Segoe UI",system-ui,Arial,sans-serif;padding:0;word-wrap:break-word}
+.pdf-wrap{position:fixed;left:-20000px;top:0;width:0;height:0;overflow:hidden}
+.pdf-sheet{background:#fff;color:#111;font:13px/1.55 "Segoe UI",system-ui,Arial,sans-serif;padding:0;word-wrap:break-word}
 .pdf-sheet h1{font-size:26px}.pdf-sheet h2{font-size:21px;display:block}.pdf-sheet h3{font-size:17px}
 .pdf-sheet h1,.pdf-sheet h2,.pdf-sheet h3,.pdf-sheet h4{margin:16px 0 8px;font-family:inherit;letter-spacing:0;color:#111}
 .pdf-sheet img{max-width:100%;height:auto}
