@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Foldr – Convert files to PDF in your browser</title>
+<title>Foldr – Convert files between formats in your browser</title>
 <meta name="description" content="Convert images, Word, Excel, PowerPoint, HTML, CSV and text files to PDF. Everything runs locally in your browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,21 +37,27 @@
 
 <main id="top">
   <section class="hero">
-    <h1>Any file in.<br>PDF out.</h1>
-    <p>Images, Word, Excel, PowerPoint, HTML, CSV and text. Converted on your device — nothing is uploaded.</p>
+    <h1>Any file in.<br>Your format out.</h1>
+    <p>PDF, Word, Excel, PowerPoint, images, HTML, CSV and text. Pick the output format for each file. Converted on your device — nothing is uploaded.</p>
   </section>
 
   <section id="convert" class="app glass" aria-label="Converter">
     <input id="fileInput" class="sr-only" type="file" multiple
-      accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,.txt,.md,.log,.json,.html,.htm,.docx,.xlsx,.xls,.csv,.pptx,.doc,.ppt,.odt,.rtf">
+      accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,.txt,.md,.log,.json,.html,.htm,.docx,.xlsx,.xls,.csv,.pptx,.pdf,.doc,.ppt,.odt,.rtf">
     <div id="drop" class="drop" role="button" tabindex="0" aria-describedby="dropHint">
       <svg class="ico big"><use href="#i-up"/></svg>
       <strong>Drop files here or <u>browse</u></strong>
-      <span id="dropHint">Up to 30 files, 25 MB each. JPG, PNG, WEBP, DOCX, XLSX, CSV, PPTX, HTML, TXT and more.</span>
+      <span id="dropHint">Up to 30 files, 25 MB each. PDF, JPG, PNG, WEBP, DOCX, XLSX, CSV, PPTX, HTML, TXT and more.</span>
     </div>
 
     <details class="settings" open>
       <summary>Conversion settings</summary>
+      <div class="grid3">
+        <label>Convert all files to
+          <select id="allTarget"><option value="">Choose a format…</option><option value="pdf">PDF</option><option value="docx">DOCX</option><option value="txt">TXT</option><option value="html">HTML</option><option value="xlsx">XLSX</option><option value="csv">CSV</option><option value="json">JSON</option><option value="png">PNG</option><option value="jpg">JPG</option><option value="webp">WEBP</option></select>
+        </label>
+      </div>
+      <p class="hint">Page size, orientation and margins apply to PDF output only.</p>
       <div class="grid3">
         <label>Page size
           <select id="size"><option value="a4">A4</option><option value="letter">Letter</option><option value="legal">Legal</option><option value="a3">A3</option><option value="a5">A5</option></select>
@@ -94,6 +100,7 @@
 
   <section id="formats" class="info">
     <h2>What gets converted, and how</h2>
+    <p>Each file has its own output menu. PDF can become DOCX or TXT (text only, layout is not kept) or PNG/JPG images; scanned PDFs need OCR, which isn’t included.</p>
     <div class="cards">
       <article class="glass"><h3>Images</h3><p>JPG, PNG, WEBP, GIF, BMP. Placed on a page, scaled to fit, orientation picked from the image.</p></article>
       <article class="glass"><h3>Word (DOCX)</h3><p>Headings, lists, tables, bold/italic and embedded images are kept. Complex layouts, headers and footers are simplified.</p></article>
@@ -128,6 +135,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="script.js"></script>
 </body>
