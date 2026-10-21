@@ -142,3 +142,9 @@ dialog::backdrop{background:rgba(8,6,30,.6);backdrop-filter:blur(4px)}
   .actions{width:100%}.actions .btn{flex:1;justify-content:center}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+#trDlg{height:auto;max-width:560px}
+.langs{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;padding:16px}
+.langbtn{padding:12px 10px;border-radius:12px;border:1px solid var(--line);background:var(--glass);color:var(--ink);font:500 .95rem var(--body);cursor:pointer;transition:.2s}
+.langbtn:hover{border-color:var(--accent);transform:translateY(-2px)}
+.langbtn[aria-pressed=true]{background:linear-gradient(120deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
