@@ -58,7 +58,15 @@
           <select id="allTarget"><option value="">Choose a format…</option><option value="pdf">PDF</option><option value="docx">DOCX</option><option value="txt">TXT</option><option value="html">HTML</option><option value="xlsx">XLSX</option><option value="csv">CSV</option><option value="json">JSON</option><option value="png">PNG</option><option value="jpg">JPG</option><option value="webp">WEBP</option></select>
         </label>
       </div>
-      <p class="hint">Page size, orientation and margins apply to PDF output only.</p>
+      <div class="grid3" style="padding-top:0">
+        <label>Translate text to
+          <select id="trLang"><option value="">Don’t translate</option><option value="en">English</option><option value="ru">Русский</option><option value="uz">Oʻzbekcha</option><option value="tr">Türkçe</option><option value="de">Deutsch</option><option value="fr">Français</option><option value="es">Español</option><option value="it">Italiano</option><option value="pt">Português</option><option value="zh">中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="ar">العربية</option><option value="hi">हिन्दी</option><option value="uk">Українська</option><option value="pl">Polski</option><option value="kk">Қазақша</option></select>
+        </label>
+        <label>Original language
+          <select id="trSrc"><option value="">Auto-detect</option><option value="en">English</option><option value="ru">Русский</option><option value="uz">Oʻzbekcha</option><option value="tr">Türkçe</option><option value="de">Deutsch</option><option value="fr">Français</option><option value="es">Español</option><option value="it">Italiano</option><option value="pt">Português</option><option value="zh">中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="ar">العربية</option><option value="hi">हिन्दी</option><option value="uk">Українська</option><option value="pl">Polski</option><option value="kk">Қазақша</option></select>
+        </label>
+      </div>
+      <p class="hint">Translation runs on your device using the browser’s built-in translator (recent desktop Chrome); the first use of a language pair downloads a language pack. It works for text, HTML, DOCX, PPTX and PDF text, not for images or spreadsheets. Page size, orientation and margins apply to PDF output only.</p>
       <div class="grid3">
         <label>Page size
           <select id="size"><option value="a4">A4</option><option value="letter">Letter</option><option value="legal">Legal</option><option value="a3">A3</option><option value="a5">A5</option></select>
