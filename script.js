@@ -1,3 +1,4 @@
+
 "use strict";
 
 /* ---------- Config ---------- */
@@ -177,7 +178,7 @@ function refresh() {
 }
 
 /* ---------- Settings ---------- */
-const getSettings = () => ({ size: $("size").value, orient: $("orient").value, margin: +$("margin").value, lang: $("trLang").value, src: $("trSrc").value });
+const getSettings = () => ({ size: $("size").value, orient: $("orient").value, margin: +$("margin").value, lang: $("trLang").value, src: $("trSrc").value, online: $("trOnline").checked, server: !!TRANSLATE_ENDPOINT && $("trServer").checked });
 const newDoc = (s, o) => new window.jspdf.jsPDF({ unit: "mm", format: s.size, orientation: o, compress: true });
 const pickOrient = (s, auto) => (s.orient === "auto" ? auto : s.orient);
 
@@ -414,25 +415,85 @@ async function convertOne(item, s, report) {
   throw new Error("Unsupported conversion.");
 }
 
-/* ---------- Translation: on-device, via the browser's built-in Translator API (recent desktop Chrome) ---------- */
+/* ---------- Translation ----------
+   1) On-device: the browser's built-in Translator API (recent desktop Chrome) – text stays on the device.
+   2) Online fallback (only if the user ticks the box): MyMemory free API – text is sent to that service. */
 const tCache = new Map();
-async function getTranslator(src, tgt) {
-  if (!("Translator" in self)) throw new Error("Translation needs a recent desktop Chrome with the built-in Translator API. This browser doesn't support it.");
+const byteLen = (x) => new TextEncoder().encode(x).length;
+const MYM = "https://api.mymemory.translated.net/get";
+const mCode = (c) => ({ zh: "zh-CN" }[c] || c);
+
+function chunkBytes(text, max) {
+  const out = []; let cur = "";
+  for (const w of text.split(" ")) {
+    const next = cur ? cur + " " + w : w;
+    if (byteLen(next) > max && cur) { out.push(cur); cur = w; } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+function onlineEngine(src, tgt) {
+  return {
+    async translate(text) {
+      const out = [];
+      for (const c of chunkBytes(text, 450)) {
+        const pair = (src === "auto" ? "Autodetect" : mCode(src)) + "|" + mCode(tgt);
+        let r;
+        try { r = await fetch(`${MYM}?q=${encodeURIComponent(c)}&langpair=${encodeURIComponent(pair)}`); }
+        catch (e) { throw new Error("The online translation service can't be reached. Check your connection."); }
+        if (!r.ok) throw new Error(`Online translation failed (HTTP ${r.status}).`);
+        const j = await r.json();
+        if (+j.responseStatus !== 200) {
+          throw new Error(/ALL AVAILABLE|QUOTA|LIMIT/i.test(String(j.responseDetails))
+            ? "The free daily limit of the online translation service is used up. Try again tomorrow, or use desktop Chrome for on-device translation."
+            : "Online translation failed: " + j.responseDetails);
+        }
+        out.push(new DOMParser().parseFromString(j.responseData.translatedText, "text/html").documentElement.textContent);
+      }
+      return out.join(" ");
+    },
+  };
+}
+/* Accurate mode: your own translation server (see translate-worker.js). Put its URL here, e.g. "https://translate.example.workers.dev" */
+const TRANSLATE_ENDPOINT = "";
+function serverEngine(src, tgt) {
+  const call = async (texts) => {
+    let r;
+    try { r = await fetch(TRANSLATE_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texts, source: src === "auto" ? "" : src, target: tgt }) }); }
+    catch (e) { throw new Error("The translation server can't be reached."); }
+    if (!r.ok) throw new Error(`Translation server error (HTTP ${r.status}).`);
+    const j = await r.json();
+    if (!Array.isArray(j.texts) || j.texts.length !== texts.length) throw new Error("The translation server returned an unexpected answer.");
+    return j.texts;
+  };
+  return { translate: async (t) => (await call([t]))[0], batch: call };
+}
+async function getTranslator(src, tgt, online, server) {
   if (src === tgt) throw new Error("The source and target languages are the same.");
-  const key = src + ">" + tgt;
+  const key = `${src}>${tgt}>${online}>${server}`;
   if (tCache.has(key)) return tCache.get(key);
-  const a = await Translator.availability({ sourceLanguage: src, targetLanguage: tgt });
-  if (a === "unavailable") throw new Error(`This browser can't translate ${src} → ${tgt}. Try another language pair.`);
-  let tr;
-  try { tr = await Translator.create({ sourceLanguage: src, targetLanguage: tgt }); }
-  catch (e) { throw new Error("The language pack couldn't be loaded. Choose the source language manually and press Convert again."); }
-  tCache.set(key, tr); return tr;
+  let eng = null;
+  if (server && TRANSLATE_ENDPOINT) eng = serverEngine(src, tgt);
+  if (!eng && src !== "auto" && "Translator" in self) {
+    try {
+      if ((await Translator.availability({ sourceLanguage: src, targetLanguage: tgt })) !== "unavailable") eng = await Translator.create({ sourceLanguage: src, targetLanguage: tgt });
+    } catch (e) { eng = null; }
+  }
+  if (!eng) {
+    if (!online) throw new Error("This browser can't translate this language pair on-device. Tick “use the online service” in the translation settings, or use desktop Chrome.");
+    eng = onlineEngine(src, tgt);
+  }
+  tCache.set(key, eng); return eng;
 }
 async function detectLang(sample) {
-  if (!("LanguageDetector" in self)) throw new Error("This browser can't detect the language. Choose the source language manually.");
+  if (!("LanguageDetector" in self)) throw new Error("This browser can't detect the language. Choose the original language manually.");
   const r = await (await LanguageDetector.create()).detect(sample.slice(0, 1500));
-  if (!r.length || r[0].detectedLanguage === "und") throw new Error("Couldn't detect the language. Choose the source language manually.");
+  if (!r.length || r[0].detectedLanguage === "und") throw new Error("Couldn't detect the language. Choose the original language manually.");
   return r[0].detectedLanguage;
+}
+async function pickSrc(sample, s) {
+  if (s.src) return s.src;
+  try { return await detectLang(sample); } catch (e) { if (s.online) return "auto"; throw e; }
 }
 function splitLong(part) {
   const out = [];
@@ -441,7 +502,18 @@ function splitLong(part) {
 }
 async function trText(text, s) {
   if (!s.lang) return text;
-  const src = s.src || await detectLang(text), tr = await getTranslator(src, s.lang), s2 = { ...s, src };
+  const src = await pickSrc(text, s), tr = await getTranslator(src, s.lang, s.online, s.server), s2 = { ...s, src };
+  if (tr.batch) {
+    const lines = text.split("\n"), idx = lines.map((l, i) => (l.trim() ? i : -1)).filter((i) => i >= 0);
+    for (let k = 0; k < idx.length;) {
+      let e = k, len = 0;
+      while (e < idx.length && e - k < 40 && (e === k || len + lines[idx[e]].length < 3000)) len += lines[idx[e++]].length;
+      const part = idx.slice(k, e), res = await tr.batch(part.map((i) => lines[i].trim()));
+      part.forEach((i, n) => { lines[i] = res[n]; });
+      k = e;
+    }
+    return lines.join("\n");
+  }
   const lines = [];
   for (const line of text.split("\n")) {
     if (!line.trim()) { lines.push(line); continue; }
@@ -457,8 +529,18 @@ async function trHtml(html, s) {
   const w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT), nodes = [];
   while (w.nextNode()) if (w.currentNode.nodeValue.trim()) nodes.push(w.currentNode);
   if (!nodes.length) return html;
-  const src = s.src || await detectLang(nodes.map((n) => n.nodeValue).join(" ")), s2 = { ...s, src };
-  await getTranslator(src, s.lang);
+  const src = await pickSrc(nodes.map((n) => n.nodeValue).join(" "), s), s2 = { ...s, src };
+  const eng = await getTranslator(src, s.lang, s.online, s.server);
+  if (eng.batch) {
+    for (let i = 0; i < nodes.length;) {
+      let j = i, len = 0;
+      while (j < nodes.length && j - i < 40 && (j === i || len + nodes[j].nodeValue.length < 3000)) len += nodes[j++].nodeValue.length;
+      const part = nodes.slice(i, j), res = await eng.batch(part.map((n) => n.nodeValue.trim()));
+      part.forEach((n, k) => { const v = n.nodeValue; n.nodeValue = v.match(/^\s*/)[0] + res[k] + v.match(/\s*$/)[0]; });
+      i = j;
+    }
+    return host.innerHTML;
+  }
   for (const n of nodes) {
     const v = n.nodeValue;
     n.nodeValue = v.match(/^\s*/)[0] + await trText(v.trim(), s2) + v.match(/\s*$/)[0];
@@ -467,9 +549,8 @@ async function trHtml(html, s) {
 }
 async function trPages(pages, s) {
   if (!s.lang) return pages;
-  const src = s.src || await detectLang(pages.flat().join(" ")), s2 = { ...s, src };
-  const out = [];
-  for (const p of pages) { const l = []; for (const line of p) l.push(await trText(line, s2)); out.push(l); }
+  const src = await pickSrc(pages.flat().join(" "), s), s2 = { ...s, src }, out = [];
+  for (const p of pages) out.push((await trText(p.join("\n"), s2)).split("\n").filter((x) => x.trim()));
   return out;
 }
 
@@ -487,7 +568,7 @@ async function convertAll() {
   if (!queue.length) return;
   busy = true; refresh();
   const s = getSettings();
-  if (s.lang && s.src) { try { await getTranslator(s.src, s.lang); } catch (e) { busy = false; refresh(); return toast(e.message, true); } }
+  if (s.lang && s.src) { try { await getTranslator(s.src, s.lang, s.online, s.server); } catch (e) { busy = false; refresh(); return toast(e.message, true); } }
   $("overall").hidden = false; setOverall(0);
   let ok = 0, fail = 0;
   for (let i = 0; i < queue.length; i++) {
@@ -606,7 +687,7 @@ $("allTarget").addEventListener("change", () => {
   $("allTarget").value = "";
 });
 // Changing settings invalidates earlier results so they can be re-converted with the new options
-["size", "orient", "margin", "trLang", "trSrc"].forEach((id) => $(id).addEventListener("change", () => {
+["size", "orient", "margin", "trLang", "trSrc", "trOnline", "trServer"].forEach((id) => $(id).addEventListener("change", () => {
   if (busy) return;
   let n = 0;
   files.forEach((f) => { if (f.status === "done") { f.status = "ready"; f.blob = null; f.progress = 0; updateRow(f); n++; } });
@@ -614,3 +695,25 @@ $("allTarget").addEventListener("change", () => {
 }));
 
 refresh();
+
+/* ---------- Language picker button ---------- */
+(function initLangPicker() {
+  const sel = $("trLang"), grid = $("langGrid");
+  const mk = (code, label) => {
+    const b = el("button", { type: "button", class: "langbtn", "data-code": code, text: label });
+    b.addEventListener("click", () => setLang(code));
+    grid.append(b);
+  };
+  [...sel.options].forEach((o) => mk(o.value, o.value ? o.text : "✕ Don’t translate"));
+  function setLang(code) {
+    sel.value = code;
+    sel.dispatchEvent(new Event("change"));
+    $("trBtn").textContent = "🌐 Translate: " + (code ? sel.selectedOptions[0].text : "Off");
+    grid.querySelectorAll(".langbtn").forEach((b) => b.setAttribute("aria-pressed", b.dataset.code === code));
+    $("trDlg").close();
+  }
+  $("trBtn").addEventListener("click", () => $("trDlg").showModal());
+  $("trClose").addEventListener("click", () => $("trDlg").close());
+  $("trServerRow").hidden = !TRANSLATE_ENDPOINT;
+  grid.querySelector('[data-code=""]').setAttribute("aria-pressed", "true");
+})();
