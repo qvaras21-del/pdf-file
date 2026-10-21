@@ -1,4 +1,3 @@
-
 "use strict";
 
 /* ---------- Config ---------- */
@@ -306,7 +305,7 @@ async function imageToImage(file, t) {
 async function loadPdf(file) {
   if (!window.pdfjsLib) throw new Error("The PDF reader library failed to load. Check your connection and reload.");
   pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS;
-  return pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  return withTimeout(pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise, 30000, "The PDF reader didn't respond (its library may be blocked). Reload the page and check that cdnjs.cloudflare.com is reachable.");
 }
 
 async function pdfText(file, report) {
@@ -351,6 +350,7 @@ async function pdfToImages(file, t, report) {
 async function convertOne(item, s, report) {
   const f = item.file, t = item.target, ext = item.ext;
   report(10); await tick();
+  s = { ...s, report };
   if (s.lang && (item.cat === "img" || item.cat === "sheet" || (item.cat === "pdf" && (t === "png" || t === "jpg")))) throw new Error("Translation isn't available for images, spreadsheets or image output.");
   const out = (blob, e = t) => ({ blob, ext: e });
   const toPdf = async (html, o) => { report(35); return out((await htmlToPdf(html, s, pickOrient(s, o), report)).output("blob")); };
@@ -439,7 +439,7 @@ function onlineEngine(src, tgt) {
       for (const c of chunkBytes(text, 450)) {
         const pair = (src === "auto" ? "Autodetect" : mCode(src)) + "|" + mCode(tgt);
         let r;
-        try { r = await fetch(`${MYM}?q=${encodeURIComponent(c)}&langpair=${encodeURIComponent(pair)}`); }
+        try { r = await fetch(`${MYM}?q=${encodeURIComponent(c)}&langpair=${encodeURIComponent(pair)}`, { signal: AbortSignal.timeout(30000) }); }
         catch (e) { throw new Error("The online translation service can't be reached. Check your connection."); }
         if (!r.ok) throw new Error(`Online translation failed (HTTP ${r.status}).`);
         const j = await r.json();
@@ -454,12 +454,14 @@ function onlineEngine(src, tgt) {
     },
   };
 }
+const TO = 60000, TMSG = "Translation is taking too long (a language pack may still be downloading, or the service is slow). Try again, choose the original language manually, or use another translation mode.";
+const withTimeout = (p, ms, msg) => { let t; return Promise.race([p, new Promise((_, rej) => { t = setTimeout(() => rej(new Error(msg)), ms); })]).finally(() => clearTimeout(t)); };
 /* Accurate mode: your own translation server (see translate-worker.js). Put its URL here, e.g. "https://translate.example.workers.dev" */
 const TRANSLATE_ENDPOINT = "";
 function serverEngine(src, tgt) {
   const call = async (texts) => {
     let r;
-    try { r = await fetch(TRANSLATE_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texts, source: src === "auto" ? "" : src, target: tgt }) }); }
+    try { r = await fetch(TRANSLATE_ENDPOINT, { method: "POST", signal: AbortSignal.timeout(90000), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texts, source: src === "auto" ? "" : src, target: tgt }) }); }
     catch (e) { throw new Error("The translation server can't be reached."); }
     if (!r.ok) throw new Error(`Translation server error (HTTP ${r.status}).`);
     const j = await r.json();
@@ -476,7 +478,7 @@ async function getTranslator(src, tgt, online, server) {
   if (server && TRANSLATE_ENDPOINT) eng = serverEngine(src, tgt);
   if (!eng && src !== "auto" && "Translator" in self) {
     try {
-      if ((await Translator.availability({ sourceLanguage: src, targetLanguage: tgt })) !== "unavailable") eng = await Translator.create({ sourceLanguage: src, targetLanguage: tgt });
+      if ((await withTimeout(Translator.availability({ sourceLanguage: src, targetLanguage: tgt }), TO, TMSG)) !== "unavailable") eng = await withTimeout(Translator.create({ sourceLanguage: src, targetLanguage: tgt }), 180000, TMSG);
     } catch (e) { eng = null; }
   }
   if (!eng) {
@@ -487,7 +489,7 @@ async function getTranslator(src, tgt, online, server) {
 }
 async function detectLang(sample) {
   if (!("LanguageDetector" in self)) throw new Error("This browser can't detect the language. Choose the original language manually.");
-  const r = await (await LanguageDetector.create()).detect(sample.slice(0, 1500));
+  const r = await withTimeout((async () => (await LanguageDetector.create()).detect(sample.slice(0, 1500)))(), TO, TMSG);
   if (!r.length || r[0].detectedLanguage === "und") throw new Error("Couldn't detect the language. Choose the original language manually.");
   return r[0].detectedLanguage;
 }
@@ -508,18 +510,19 @@ async function trText(text, s) {
     for (let k = 0; k < idx.length;) {
       let e = k, len = 0;
       while (e < idx.length && e - k < 40 && (e === k || len + lines[idx[e]].length < 3000)) len += lines[idx[e++]].length;
-      const part = idx.slice(k, e), res = await tr.batch(part.map((i) => lines[i].trim()));
+      const part = idx.slice(k, e), res = await withTimeout(tr.batch(part.map((i) => lines[i].trim())), TO, TMSG);
       part.forEach((i, n) => { lines[i] = res[n]; });
-      k = e;
+      k = e; if (s.report) s.report(10 + Math.round((24 * k) / idx.length));
     }
     return lines.join("\n");
   }
-  const lines = [];
-  for (const line of text.split("\n")) {
+  const lines = [], all = text.split("\n");
+  for (const [n, line] of all.entries()) {
     if (!line.trim()) { lines.push(line); continue; }
     let r = "";
-    for (const c of splitLong(line)) if (c.trim()) r += (r ? " " : "") + await tr.translate(c.trim());
+    for (const c of splitLong(line)) if (c.trim()) r += (r ? " " : "") + await withTimeout(tr.translate(c.trim()), TO, TMSG);
     lines.push(r);
+    if (s.report) s.report(10 + Math.round((24 * (n + 1)) / all.length));
   }
   return lines.join("\n");
 }
@@ -529,28 +532,32 @@ async function trHtml(html, s) {
   const w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT), nodes = [];
   while (w.nextNode()) if (w.currentNode.nodeValue.trim()) nodes.push(w.currentNode);
   if (!nodes.length) return html;
-  const src = await pickSrc(nodes.map((n) => n.nodeValue).join(" "), s), s2 = { ...s, src };
+  const src = await pickSrc(nodes.map((n) => n.nodeValue).join(" "), s), s2 = { ...s, src, report: null };
   const eng = await getTranslator(src, s.lang, s.online, s.server);
   if (eng.batch) {
     for (let i = 0; i < nodes.length;) {
       let j = i, len = 0;
       while (j < nodes.length && j - i < 40 && (j === i || len + nodes[j].nodeValue.length < 3000)) len += nodes[j++].nodeValue.length;
-      const part = nodes.slice(i, j), res = await eng.batch(part.map((n) => n.nodeValue.trim()));
+      const part = nodes.slice(i, j), res = await withTimeout(eng.batch(part.map((n) => n.nodeValue.trim())), TO, TMSG);
       part.forEach((n, k) => { const v = n.nodeValue; n.nodeValue = v.match(/^\s*/)[0] + res[k] + v.match(/\s*$/)[0]; });
-      i = j;
+      i = j; if (s.report) s.report(10 + Math.round((24 * i) / nodes.length));
     }
     return host.innerHTML;
   }
-  for (const n of nodes) {
+  for (const [k, n] of nodes.entries()) {
     const v = n.nodeValue;
     n.nodeValue = v.match(/^\s*/)[0] + await trText(v.trim(), s2) + v.match(/\s*$/)[0];
+    if (s.report) s.report(10 + Math.round((24 * (k + 1)) / nodes.length));
   }
   return host.innerHTML;
 }
 async function trPages(pages, s) {
   if (!s.lang) return pages;
-  const src = await pickSrc(pages.flat().join(" "), s), s2 = { ...s, src }, out = [];
-  for (const p of pages) out.push((await trText(p.join("\n"), s2)).split("\n").filter((x) => x.trim()));
+  const src = await pickSrc(pages.flat().join(" "), s), s2 = { ...s, src, report: null }, out = [];
+  for (const [n, p] of pages.entries()) {
+    out.push((await trText(p.join("\n"), s2)).split("\n").filter((x) => x.trim()));
+    if (s.report) s.report(90 + Math.round((8 * (n + 1)) / pages.length));
+  }
   return out;
 }
 
