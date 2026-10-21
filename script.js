@@ -1,4 +1,3 @@
-
 "use strict";
 
 /* ---------- Config ---------- */
@@ -178,7 +177,7 @@ function refresh() {
 }
 
 /* ---------- Settings ---------- */
-const getSettings = () => ({ size: $("size").value, orient: $("orient").value, margin: +$("margin").value });
+const getSettings = () => ({ size: $("size").value, orient: $("orient").value, margin: +$("margin").value, lang: $("trLang").value, src: $("trSrc").value });
 const newDoc = (s, o) => new window.jspdf.jsPDF({ unit: "mm", format: s.size, orientation: o, compress: true });
 const pickOrient = (s, auto) => (s.orient === "auto" ? auto : s.orient);
 
@@ -351,6 +350,7 @@ async function pdfToImages(file, t, report) {
 async function convertOne(item, s, report) {
   const f = item.file, t = item.target, ext = item.ext;
   report(10); await tick();
+  if (s.lang && (item.cat === "img" || item.cat === "sheet" || (item.cat === "pdf" && (t === "png" || t === "jpg")))) throw new Error("Translation isn't available for images, spreadsheets or image output.");
   const out = (blob, e = t) => ({ blob, ext: e });
   const toPdf = async (html, o) => { report(35); return out((await htmlToPdf(html, s, pickOrient(s, o), report)).output("blob")); };
   const asHtml = (html) => {
@@ -367,7 +367,7 @@ async function convertOne(item, s, report) {
       report(50); return out(await imageToImage(f, t));
     case "pdf": {
       if (t === "png" || t === "jpg") return pdfToImages(f, t, report);
-      const pages = await pdfText(f, report);
+      const pages = await trPages(await pdfText(f, report), s);
       if (!pages.some((p) => p.length)) throw new Error("This PDF has no selectable text (it may be a scan, which needs OCR).");
       if (t === "txt") return asText(pages.map((p) => p.join("\n")).join("\n\n"));
       const paras = []; pages.forEach((p, i) => { if (i) paras.push(null); paras.push(...p); });
@@ -376,19 +376,20 @@ async function convertOne(item, s, report) {
     case "text": {
       let txt = await f.text();
       if (ext === "json") { try { txt = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) { /* keep raw */ } }
+      txt = await trText(txt, s);
       if (t === "docx") return asDocx(txt);
       const html = `<pre class="plain">${esc(txt)}</pre>`;
       return t === "html" ? asHtml(html) : toPdf(html, "p");
     }
     case "html": {
-      const raw = await f.text();
+      const raw = await trHtml(await f.text(), s);
       if (t === "docx") return asDocx(htmlToText(raw));
       if (t === "txt") return asText(htmlToText(raw));
       return toPdf(raw, "p");
     }
     case "docx": {
       if (!window.mammoth) throw new Error("The DOCX library failed to load. Check your connection and reload.");
-      const html = (await mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() })).value || "<p><em>(empty document)</em></p>";
+      const html = await trHtml((await mammoth.convertToHtml({ arrayBuffer: await f.arrayBuffer() })).value || "<p><em>(empty document)</em></p>", s);
       if (t === "txt") return asText(htmlToText(html));
       return t === "html" ? asHtml(html) : toPdf(html, "p");
     }
@@ -404,13 +405,72 @@ async function convertOne(item, s, report) {
       return t === "html" ? asHtml(sheetHtml(wb)) : toPdf(sheetHtml(wb), "l");
     }
     case "pptx": {
-      const html = await pptxToHtml(await f.arrayBuffer());
+      const html = await trHtml(await pptxToHtml(await f.arrayBuffer()), s);
       if (t === "txt") return asText(htmlToText(html));
       if (t === "docx") return asDocx(htmlToText(html));
       return toPdf(html, "l");
     }
   }
   throw new Error("Unsupported conversion.");
+}
+
+/* ---------- Translation: on-device, via the browser's built-in Translator API (recent desktop Chrome) ---------- */
+const tCache = new Map();
+async function getTranslator(src, tgt) {
+  if (!("Translator" in self)) throw new Error("Translation needs a recent desktop Chrome with the built-in Translator API. This browser doesn't support it.");
+  if (src === tgt) throw new Error("The source and target languages are the same.");
+  const key = src + ">" + tgt;
+  if (tCache.has(key)) return tCache.get(key);
+  const a = await Translator.availability({ sourceLanguage: src, targetLanguage: tgt });
+  if (a === "unavailable") throw new Error(`This browser can't translate ${src} → ${tgt}. Try another language pair.`);
+  let tr;
+  try { tr = await Translator.create({ sourceLanguage: src, targetLanguage: tgt }); }
+  catch (e) { throw new Error("The language pack couldn't be loaded. Choose the source language manually and press Convert again."); }
+  tCache.set(key, tr); return tr;
+}
+async function detectLang(sample) {
+  if (!("LanguageDetector" in self)) throw new Error("This browser can't detect the language. Choose the source language manually.");
+  const r = await (await LanguageDetector.create()).detect(sample.slice(0, 1500));
+  if (!r.length || r[0].detectedLanguage === "und") throw new Error("Couldn't detect the language. Choose the source language manually.");
+  return r[0].detectedLanguage;
+}
+function splitLong(part) {
+  const out = [];
+  while (part.length > 900) { let i = part.lastIndexOf(" ", 900); if (i < 300) i = 900; out.push(part.slice(0, i)); part = part.slice(i); }
+  out.push(part); return out;
+}
+async function trText(text, s) {
+  if (!s.lang) return text;
+  const src = s.src || await detectLang(text), tr = await getTranslator(src, s.lang), s2 = { ...s, src };
+  const lines = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) { lines.push(line); continue; }
+    let r = "";
+    for (const c of splitLong(line)) if (c.trim()) r += (r ? " " : "") + await tr.translate(c.trim());
+    lines.push(r);
+  }
+  return lines.join("\n");
+}
+async function trHtml(html, s) {
+  if (!s.lang) return html;
+  const host = el("div"); host.append(sanitize(html));
+  const w = document.createTreeWalker(host, NodeFilter.SHOW_TEXT), nodes = [];
+  while (w.nextNode()) if (w.currentNode.nodeValue.trim()) nodes.push(w.currentNode);
+  if (!nodes.length) return html;
+  const src = s.src || await detectLang(nodes.map((n) => n.nodeValue).join(" ")), s2 = { ...s, src };
+  await getTranslator(src, s.lang);
+  for (const n of nodes) {
+    const v = n.nodeValue;
+    n.nodeValue = v.match(/^\s*/)[0] + await trText(v.trim(), s2) + v.match(/\s*$/)[0];
+  }
+  return host.innerHTML;
+}
+async function trPages(pages, s) {
+  if (!s.lang) return pages;
+  const src = s.src || await detectLang(pages.flat().join(" ")), s2 = { ...s, src };
+  const out = [];
+  for (const p of pages) { const l = []; for (const line of p) l.push(await trText(line, s2)); out.push(l); }
+  return out;
 }
 
 /* ---------- Convert all ---------- */
@@ -427,6 +487,7 @@ async function convertAll() {
   if (!queue.length) return;
   busy = true; refresh();
   const s = getSettings();
+  if (s.lang && s.src) { try { await getTranslator(s.src, s.lang); } catch (e) { busy = false; refresh(); return toast(e.message, true); } }
   $("overall").hidden = false; setOverall(0);
   let ok = 0, fail = 0;
   for (let i = 0; i < queue.length; i++) {
@@ -545,7 +606,7 @@ $("allTarget").addEventListener("change", () => {
   $("allTarget").value = "";
 });
 // Changing settings invalidates earlier results so they can be re-converted with the new options
-["size", "orient", "margin"].forEach((id) => $(id).addEventListener("change", () => {
+["size", "orient", "margin", "trLang", "trSrc"].forEach((id) => $(id).addEventListener("change", () => {
   if (busy) return;
   let n = 0;
   files.forEach((f) => { if (f.status === "done") { f.status = "ready"; f.blob = null; f.progress = 0; updateRow(f); n++; } });
